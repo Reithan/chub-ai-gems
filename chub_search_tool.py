@@ -168,9 +168,7 @@ SHOWCASE_CACHE_TTL = 86400  # 24 hours
 # Simple in-memory cache for showcase data
 _showcase_cache = {"data": None, "ts": 0}
 _showcase_lock = threading.Lock()
-_search_cache = (
-    {}
-)  # key: frozen params (sort-independent) → {'processed', 'total', 'pool_size_raw', 'pool_size_unique', 'ts'}
+_search_cache = {}  # key: frozen params (sort-independent) → {'processed', 'total', 'pool_size_raw', 'pool_size_unique', 'ts'}
 _search_lock = threading.Lock()
 SEARCH_CACHE_TTL = 3600  # 60 minutes
 
