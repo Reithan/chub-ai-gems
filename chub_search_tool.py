@@ -15,12 +15,14 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from flask import Flask, render_template_string, request, jsonify, Response
 from datetime import datetime, timezone
 
+
 def get_seasonal_topic():
     """Return a showcase topic based on the current date."""
     today = datetime.now()
     m, d = today.month, today.day
 
     # Check date ranges (month, day_start, day_end)
+    # fmt: off
     seasons = [
         ((10, 1),  (10, 31), {'query': 'Horror halloween',       'emoji': '🎃', 'label': 'Halloween',    'min_favs': 0, 'tags': 'halloween,horror,spooky,monster'}),
         ((12, 1),  (12, 31), {'query': 'Christmas winter',       'emoji': '🎄', 'label': 'Christmas',    'min_favs': 0, 'tags': 'christmas,winter,holiday,snow'}),
@@ -29,16 +31,24 @@ def get_seasonal_topic():
         ((3, 14),  (3, 20),  {'query': 'drinking lucky irish',   'emoji': '☘️', 'label': "St Patrick's", 'min_favs': 0, 'tags': 'irish,lucky,drinking'}),
         ((3, 30),  (4, 2),   {'query': 'Trickster prank',        'emoji': '🃏', 'label': 'April Fools',  'min_favs': 0, 'tags': 'trickster,prank,jester'}),
         ((3, 28),  (4, 15),  {'query': 'rabbit',                 'emoji': '🐣', 'label': 'Easter',       'min_favs': 0, 'tags': 'easter,rabbit,bunny,spring'}),
-        ((5, 15),  (8, 31),  {'query': '',                 'emoji': '🏖️', 'label': 'Summer',       'min_favs': 0, 'tags': 'summer,vacation,camping,island,beach', 'exclude_tags': ['hyena', 'futanari', 'femboy']}),
+        ((5, 15),  (8, 31),  {'query': '',                       'emoji': '🏖️', 'label': 'Summer',       'min_favs': 0, 'tags': 'summer,vacation,camping,island,beach'}),
         ((11, 20), (11, 30), {'query': 'thanksgiving',           'emoji': '🦃', 'label': 'Thanksgiving', 'min_favs': 0, 'tags': 'thanksgiving,harvest,feast'}),
     ]
+    # fmt: on
 
     for (m1, d1), (m2, d2), topic in seasons:
         if (m == m1 and d >= d1) or (m == m2 and d <= d2) or (m1 < m < m2):
             return topic
 
     # Default fallback
-    return {'query': 'Goth', 'emoji': '🧛', 'label': 'Goth', 'min_favs': 300, 'tags': 'goth,gothic,vampire,dark'}
+    return {
+        "query": "Goth",
+        "emoji": "🧛",
+        "label": "Goth",
+        "min_favs": 300,
+        "tags": "goth,gothic,vampire,dark",
+    }
+
 
 app = Flask(__name__)
 logging.basicConfig(level=logging.INFO)
@@ -46,24 +56,40 @@ logging.basicConfig(level=logging.INFO)
 # ─── Basic Auth (toggleable) ───
 # Enable by setting GEMS_AUTH_ENABLED=true and a username/password:
 #   GEMS_AUTH_ENABLED=true GEMS_AUTH_USERNAME=me GEMS_AUTH_PASSWORD=secret python chub_search_tool.py
-AUTH_ENABLED = os.environ.get('GEMS_AUTH_ENABLED', 'false').strip().lower() in ('1', 'true', 'yes', 'on')
-AUTH_USERNAME = os.environ.get('GEMS_AUTH_USERNAME', 'admin')
-AUTH_PASSWORD = os.environ.get('GEMS_AUTH_PASSWORD', '')
+AUTH_ENABLED = os.environ.get("GEMS_AUTH_ENABLED", "false").strip().lower() in (
+    "1",
+    "true",
+    "yes",
+    "on",
+)
+AUTH_USERNAME = os.environ.get("GEMS_AUTH_USERNAME", "admin")
+AUTH_PASSWORD = os.environ.get("GEMS_AUTH_PASSWORD", "")
 
 if AUTH_ENABLED and not AUTH_PASSWORD:
-    logging.warning("GEMS_AUTH_ENABLED is set but GEMS_AUTH_PASSWORD is empty — all requests will be rejected.")
+    logging.warning(
+        "GEMS_AUTH_ENABLED is set but GEMS_AUTH_PASSWORD is empty — all requests will be rejected."
+    )
+
 
 @app.before_request
 def require_basic_auth():
     if not AUTH_ENABLED:
         return None
     auth = request.authorization
-    if (auth and auth.type == 'basic' and AUTH_PASSWORD
-            and hmac.compare_digest(auth.username or '', AUTH_USERNAME)
-            and hmac.compare_digest(auth.password or '', AUTH_PASSWORD)):
+    if (
+        auth
+        and auth.type == "basic"
+        and AUTH_PASSWORD
+        and hmac.compare_digest(auth.username or "", AUTH_USERNAME)
+        and hmac.compare_digest(auth.password or "", AUTH_PASSWORD)
+    ):
         return None
-    return Response('Authentication required.', 401,
-                    {'WWW-Authenticate': 'Basic realm="Chub AI Gems"'})
+    return Response(
+        "Authentication required.",
+        401,
+        {"WWW-Authenticate": 'Basic realm="Chub AI Gems"'},
+    )
+
 
 # ─── Rate Limiter ───
 _rate_limits = defaultdict(list)
@@ -71,31 +97,37 @@ RATE_LIMIT_MAX = 10
 RATE_LIMIT_WINDOW = 60
 _rate_lock = threading.Lock()
 
+
 def rate_limit(f):
     @wraps(f)
     def decorated(*args, **kwargs):
         ip = request.remote_addr
         now = time.time()
         with _rate_lock:
-            _rate_limits[ip] = [t for t in _rate_limits[ip] if now - t < RATE_LIMIT_WINDOW]
+            _rate_limits[ip] = [
+                t for t in _rate_limits[ip] if now - t < RATE_LIMIT_WINDOW
+            ]
             if len(_rate_limits[ip]) >= RATE_LIMIT_MAX:
                 limited = True
             else:
                 _rate_limits[ip].append(now)
                 limited = False
         if limited:
-            return jsonify({'error': 'Rate limited. Try again shortly.'}), 429
+            return jsonify({"error": "Rate limited. Try again shortly."}), 429
         return f(*args, **kwargs)
+
     return decorated
+
 
 # ─── Security Headers ───
 @app.after_request
 def security_headers(response):
-    response.headers['X-Content-Type-Options'] = 'nosniff'
-    response.headers['X-Frame-Options'] = 'DENY'
-    response.headers['X-XSS-Protection'] = '1; mode=block'
-    response.headers['Referrer-Policy'] = 'strict-origin-when-cross-origin'
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["X-XSS-Protection"] = "1; mode=block"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
     return response
+
 
 C_DEPTH = 20.0
 PRIOR_DEPTH = 12.0
@@ -103,38 +135,42 @@ C_CONV = 20.0
 PRIOR_CONV = 0.05
 
 SORT_STRATEGIES = [
-    'chat_count',
-    'download_count',
-    'default',
-    'fav_count',
-    'trending',
-    'created_at',
+    "chat_count",
+    "download_count",
+    "default",
+    "fav_count",
+    "trending",
+    "created_at",
 ]
 PAGES_PER_SORT = 3
 API_PER_PAGE = 200
 
+# fmt: off
 SHOWCASE_TOPICS = [
-    {'query': 'RPG',                'emoji': '🎲', 'label': 'RPG',              'min_favs': 0,  'tags': 'rpg'},
-    {'query': '', 'emoji': '🎩', 'label': 'Gentlemen', 'min_favs': 0, 'tags': 'fempov,male,human', 'exclusive': True, 'exclude_tags': ['anypov', 'feet', 'scat', 'diaper', 'vore', 'furry', 'genderswap', 'malepov', 'feminization', 'bbc', 'pokemon', 'femdom', 'ntr', 'cuckold', 'femboy', 'horny', 'cum toilet', 'goblin', 'cumdump', 'female monster']},
+    {'query': 'RPG',                'emoji': '🎲', 'label': 'RPG',              'min_favs': 0,   'tags': 'rpg'},
+    {'query': '',                   'emoji': '🎩', 'label': 'Gentlemen',        'min_favs': 0,   'tags': 'fempov,male,human', 'exclusive': True, 'exclude_tags': ['anypov', 'feet', 'scat', 'diaper', 'vore', 'furry', 'genderswap', 'malepov', 'feminization', 'bbc', 'pokemon', 'femdom', 'ntr', 'cuckold', 'femboy', 'horny', 'cum toilet', 'goblin', 'cumdump', 'female monster']},
     {'query': 'Fantasy',            'emoji': '⚔️', 'label': 'Fantasy',          'min_favs': 50,  'tags': 'fantasy,medieval,magic,elves'},
-    {'query': '',            'emoji': '⚔️', 'label': 'Dark Fantasy',          'min_favs': 0,  'tags': 'dark fantasy,slave'},
+    {'query': '',                   'emoji': '⚔️', 'label': 'Dark Fantasy',     'min_favs': 0,   'tags': 'dark fantasy,slave'},
     {'query': 'Romance',            'emoji': '💕', 'label': 'Romance',          'min_favs': 30,  'tags': 'romance,love,dating,relationship,slowburn'},
-    {'query': 'sci-fi',    'emoji': '🚀', 'label': 'Science Fiction',  'min_favs': 0,   'tags': 'sci-fi,science fiction,cyberpunk,space'},
-    {'query': '',             'emoji': '⚔️', 'label': 'Isekai',           'min_favs': 100, 'tags': 'isekai,reincarnation'},
+    {'query': 'sci-fi',             'emoji': '🚀', 'label': 'Science Fiction',  'min_favs': 0,   'tags': 'sci-fi,science fiction,cyberpunk,space'},
+    {'query': '',                   'emoji': '⚔️', 'label': 'Isekai',           'min_favs': 100, 'tags': 'isekai,reincarnation'},
     get_seasonal_topic(),
-    {'query': '',              'emoji': '🌸', 'label': 'Anime',            'min_favs': 0,   'tags': 'anime,manga,waifu,anime game characters,webtoon,kemonomimi,mech pilot'},
+    {'query': '',                   'emoji': '🌸', 'label': 'Anime',            'min_favs': 0,   'tags': 'anime,manga,waifu,anime game characters,webtoon,kemonomimi,mech pilot'},
     {'query': 'Roleplay',           'emoji': '🎭', 'label': 'Roleplay',         'min_favs': 0,   'tags': 'roleplay,rp'},
-    {'query': '',  'emoji': '🧟', 'label': 'Apocalypse',       'min_favs': 3,   'tags': 'apocalypse,Post-apocalypse,zombies,zombie Apocalypse', 'exclude_tags': ['futanari', 'gentle femdom']},
+    {'query': '',                   'emoji': '🧟', 'label': 'Apocalypse',       'min_favs': 3,   'tags': 'apocalypse,Post-apocalypse,zombies,zombie Apocalypse'},
     {'query': 'Wholesome',          'emoji': '💛', 'label': 'Wholesome',        'min_favs': 0,   'tags': 'wholesome,cute,comfort,slice of life,can be wholesome,can be sexy'},
-    {'query': '',     'emoji': '☯', 'label': 'The Dao',        'min_favs': 0,   'tags': 'wuxia,xianxia,cultivation,dual cultivation,murim,ancient china,china'},
+    {'query': '',                   'emoji': '☯',  'label': 'The Dao',          'min_favs': 0,   'tags': 'wuxia,xianxia,cultivation,dual cultivation,murim,ancient china,china'},
 ]
+# fmt: on
 SHOWCASE_CARDS_PER_TOPIC = 10
 SHOWCASE_CACHE_TTL = 86400  # 24 hours
 
 # Simple in-memory cache for showcase data
-_showcase_cache = {'data': None, 'ts': 0}
+_showcase_cache = {"data": None, "ts": 0}
 _showcase_lock = threading.Lock()
-_search_cache = {}  # key: frozen params (sort-independent) → {'processed', 'total', 'pool_size_raw', 'pool_size_unique', 'ts'}
+_search_cache = (
+    {}
+)  # key: frozen params (sort-independent) → {'processed', 'total', 'pool_size_raw', 'pool_size_unique', 'ts'}
 _search_lock = threading.Lock()
 SEARCH_CACHE_TTL = 3600  # 60 minutes
 
@@ -160,50 +196,61 @@ def calculate_smoothed_conversion(favorites, n_chats, downloads):
 def calculate_gem_scores(cards):
     if not cards:
         return cards
-    depths = [c['smoothed_depth'] for c in cards]
-    convs = [c['smoothed_conversion'] for c in cards]
+    depths = [c["smoothed_depth"] for c in cards]
+    convs = [c["smoothed_conversion"] for c in cards]
     median_depth = max(statistics.median(depths), 0.001) if depths else 1.0
     median_conv = max(statistics.median(convs), 0.0001) if convs else 1.0
     for c in cards:
-        norm_depth = c['smoothed_depth'] / median_depth
-        norm_conv = c['smoothed_conversion'] / median_conv
+        norm_depth = c["smoothed_depth"] / median_depth
+        norm_conv = c["smoothed_conversion"] / median_conv
         engagement = norm_depth + norm_conv
-        c['gem_score'] = engagement * math.log(c['favorites'] + 1)
-        c['norm_depth'] = norm_depth
-        c['norm_conv'] = norm_conv
-        c['engagement'] = engagement
-        c['median_depth'] = median_depth
-        c['median_conv'] = median_conv
+        c["gem_score"] = engagement * math.log(c["favorites"] + 1)
+        c["norm_depth"] = norm_depth
+        c["norm_conv"] = norm_conv
+        c["engagement"] = engagement
+        c["median_depth"] = median_depth
+        c["median_conv"] = median_conv
     return cards
 
 
-def fetch_chub_page(query, api_page, sort_by, nsfw, headers, topics='', inclusive_or=True,
-                    min_days_ago=None, max_days_ago=None):
+def fetch_chub_page(
+    query,
+    api_page,
+    sort_by,
+    nsfw,
+    headers,
+    topics="",
+    inclusive_or=True,
+    min_days_ago=None,
+    max_days_ago=None,
+):
     url = "https://api.chub.ai/search"
     params = {
-        'search': query,
-        'first': API_PER_PAGE,
-        'page': str(api_page),
-        'sort': sort_by,
-        'venus': 'false',
-        'asc': 'true' if sort_by == 'created_at' else 'false',
-        'nsfw': 'true' if nsfw else 'false'
+        "search": query,
+        "first": API_PER_PAGE,
+        "page": str(api_page),
+        "sort": sort_by,
+        "venus": "false",
+        "asc": "true" if sort_by == "created_at" else "false",
+        "nsfw": "true" if nsfw else "false",
     }
     if topics.strip():
-        params['topics'] = topics.strip()
-        params['inclusive_or'] = 'true' if inclusive_or else 'false'
+        params["topics"] = topics.strip()
+        params["inclusive_or"] = "true" if inclusive_or else "false"
     # Chub API filters on card creation date: min/max days since creation
     if min_days_ago is not None:
-        params['min_days_ago'] = str(min_days_ago)
+        params["min_days_ago"] = str(min_days_ago)
     if max_days_ago is not None:
-        params['max_days_ago'] = str(max_days_ago)
+        params["max_days_ago"] = str(max_days_ago)
     try:
         r = requests.get(url, params=params, headers=headers, timeout=15)
         if r.status_code != 200:
-            app.logger.warning(f"Chub fetch non-200 (sort={sort_by} page={api_page}): {r.status_code}")
+            app.logger.warning(
+                f"Chub fetch non-200 (sort={sort_by} page={api_page}): {r.status_code}"
+            )
             return []
         data = r.json()
-        return data.get('data', {}).get('nodes', [])
+        return data.get("data", {}).get("nodes", [])
     except Exception as e:
         app.logger.warning(f"Chub fetch failed (sort={sort_by} page={api_page}): {e}")
         return []
@@ -213,68 +260,74 @@ def fetch_showcase_topic(topic, headers):
     """Fetch a small set of cards for a showcase topic, score them, return top N."""
     url = "https://api.chub.ai/search"
     params = {
-        'search': topic.get('query', ''),
-        'first': 60,
-        'page': '1',
-        'sort': 'download_count',
-        'venus': 'false',
-        'asc': 'false',
-        'nsfw': 'true',
-        'include_forks': 'false'
+        "search": topic.get("query", ""),
+        "first": 60,
+        "page": "1",
+        "sort": "download_count",
+        "venus": "false",
+        "asc": "false",
+        "nsfw": "true",
+        "include_forks": "false",
     }
     # Use tags if provided for tighter showcase results
-    if topic.get('tags'):
-        params['topics'] = topic['tags']
+    if topic.get("tags"):
+        params["topics"] = topic["tags"]
         # Use exclusive (AND) mode if specified, otherwise default to OR
-        if topic.get('exclusive'):
-            params['inclusive_or'] = 'false'
+        if topic.get("exclusive"):
+            params["inclusive_or"] = "false"
         else:
-            params['inclusive_or'] = 'true'
+            params["inclusive_or"] = "true"
     try:
         r = requests.get(url, params=params, headers=headers, timeout=10)
         if r.status_code != 200:
-            app.logger.warning(f"Showcase fetch non-200 (topic={topic.get('label')}): {r.status_code}")
+            app.logger.warning(
+                f"Showcase fetch non-200 (topic={topic.get('label')}): {r.status_code}"
+            )
             return []
         data = r.json()
-        nodes = data.get('data', {}).get('nodes', [])
+        nodes = data.get("data", {}).get("nodes", [])
 
         cards = []
         for node in nodes:
-            favs = int(node.get('n_favorites', 0) or 0)
-            chats = int(node.get('nChats', 0) or 0)
-            messages = int(node.get('nMessages', 0) or 0)
-            downloads = int(node.get('starCount', 0) or 0)
+            favs = int(node.get("n_favorites", 0) or 0)
+            chats = int(node.get("nChats", 0) or 0)
+            messages = int(node.get("nMessages", 0) or 0)
+            downloads = int(node.get("starCount", 0) or 0)
 
             if chats < 5 or messages < 20:
                 continue
 
-            fp = node.get('fullPath', '')
-            author = fp.split('/')[0] if '/' in fp else fp
+            fp = node.get("fullPath", "")
+            author = fp.split("/")[0] if "/" in fp else fp
 
-            cards.append({
-                'name': node.get('name', 'Untitled'),
-                'author': author,
-                'author_path': fp,
-                'avatar_url': node.get('avatar_url', ''),
-                'downloads': downloads,
-                'favorites': favs,
-                'chats': chats,
-                'messages': messages,
-                'topics': node.get('topics', []),  # needed for exclusion
-                'smoothed_depth': calculate_smoothed_depth(messages, chats),
-                'smoothed_conversion': calculate_smoothed_conversion(favs, chats, downloads),
-            })
+            cards.append(
+                {
+                    "name": node.get("name", "Untitled"),
+                    "author": author,
+                    "author_path": fp,
+                    "avatar_url": node.get("avatar_url", ""),
+                    "downloads": downloads,
+                    "favorites": favs,
+                    "chats": chats,
+                    "messages": messages,
+                    "topics": node.get("topics", []),  # needed for exclusion
+                    "smoothed_depth": calculate_smoothed_depth(messages, chats),
+                    "smoothed_conversion": calculate_smoothed_conversion(
+                        favs, chats, downloads
+                    ),
+                }
+            )
 
         # Exclude unwanted tags
-        exclude = topic.get('exclude_tags', [])
+        exclude = topic.get("exclude_tags", [])
         if exclude:
             exclude_lower = {t.lower().strip() for t in exclude}
             before = len(cards)
             cards = [
-                c for c in cards
+                c
+                for c in cards
                 if not any(
-                    t.lower().strip() in exclude_lower
-                    for t in c.get('topics', [])
+                    t.lower().strip() in exclude_lower for t in c.get("topics", [])
                 )
             ]
             app.logger.info(
@@ -282,7 +335,7 @@ def fetch_showcase_topic(topic, headers):
             )
 
         cards = calculate_gem_scores(cards)
-        cards.sort(key=lambda x: x.get('gem_score', 0), reverse=True)
+        cards.sort(key=lambda x: x.get("gem_score", 0), reverse=True)
         return cards[:SHOWCASE_CARDS_PER_TOPIC]
     except Exception as e:
         app.logger.warning(f"Showcase topic '{topic.get('label')}' failed: {e}")
@@ -293,45 +346,50 @@ def get_showcase_data():
     """Return showcase data, using cache if fresh."""
     global _showcase_cache
     now = time.time()
-    if _showcase_cache['data'] and (now - _showcase_cache['ts']) < SHOWCASE_CACHE_TTL:
-        return _showcase_cache['data']
+    if _showcase_cache["data"] and (now - _showcase_cache["ts"]) < SHOWCASE_CACHE_TTL:
+        return _showcase_cache["data"]
 
     with _showcase_lock:
         now = time.time()
-        if _showcase_cache['data'] and (now - _showcase_cache['ts']) < SHOWCASE_CACHE_TTL:
-            return _showcase_cache['data']
+        if (
+            _showcase_cache["data"]
+            and (now - _showcase_cache["ts"]) < SHOWCASE_CACHE_TTL
+        ):
+            return _showcase_cache["data"]
 
         headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
-                          'AppleWebKit/537.36 (KHTML, like Gecko) '
-                          'Chrome/119.0.0.0 Safari/537.36'
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/119.0.0.0 Safari/537.36"
         }
 
         result = []
         with ThreadPoolExecutor(max_workers=10) as executor:
             futures = {
-            executor.submit(fetch_showcase_topic, t, headers): t
-            for t in SHOWCASE_TOPICS
-        }
+                executor.submit(fetch_showcase_topic, t, headers): t
+                for t in SHOWCASE_TOPICS
+            }
             for future in as_completed(futures):
                 topic = futures[future]
                 cards = future.result()
-                result.append({
-                    'query': topic['query'],
-                    'emoji': topic['emoji'],
-                    'label': topic['label'],
-                    'min_favs': topic.get('min_favs', 0),
-                    'tags': topic.get('tags', ''),
-                    'exclusive': topic.get('exclusive', False),  # ← add this
-                    'exclude_tags': topic.get('exclude_tags', []),
-                    'cards': cards
-                })
+                result.append(
+                    {
+                        "query": topic["query"],
+                        "emoji": topic["emoji"],
+                        "label": topic["label"],
+                        "min_favs": topic.get("min_favs", 0),
+                        "tags": topic.get("tags", ""),
+                        "exclusive": topic.get("exclusive", False),  # ← add this
+                        "exclude_tags": topic.get("exclude_tags", []),
+                        "cards": cards,
+                    }
+                )
 
         # Preserve the original topic order
-        order = {t['label']: i for i, t in enumerate(SHOWCASE_TOPICS)}
-        result.sort(key=lambda x: order.get(x['label'], 99))
+        order = {t["label"]: i for i, t in enumerate(SHOWCASE_TOPICS)}
+        result.sort(key=lambda x: order.get(x["label"], 99))
 
-        _showcase_cache = {'data': result, 'ts': now}
+        _showcase_cache = {"data": result, "ts": now}
         return result
 
 
@@ -1294,12 +1352,12 @@ HTML_TEMPLATE = """
 """
 
 
-@app.route('/')
+@app.route("/")
 def home():
     return render_template_string(HTML_TEMPLATE)
 
 
-@app.route('/api/showcase')
+@app.route("/api/showcase")
 @rate_limit
 def showcase_api():
     """Return pre-scored top cards for each showcase topic. Cached for 24h."""
@@ -1310,8 +1368,9 @@ def showcase_api():
         app.logger.warning(f"Showcase API failed: {e}")
         return jsonify([])
 
-@app.route('/rss')
-@app.route('/rss/<category>')
+
+@app.route("/rss")
+@app.route("/rss/<category>")
 @rate_limit
 def rss_feed(category=None):
     """RSS feed of top gems, optionally filtered by category."""
@@ -1322,37 +1381,33 @@ def rss_feed(category=None):
 
     # Validate category
     if category:
-        valid = {topic['label'].lower() for topic in showcase}
+        valid = {topic["label"].lower() for topic in showcase}
         if category.lower() not in valid:
-            labels = ', '.join(sorted(t['label'] for t in showcase))
-            return jsonify({'error': f'Unknown category. Available: {labels}'}), 404
+            labels = ", ".join(sorted(t["label"] for t in showcase))
+            return jsonify({"error": f"Unknown category. Available: {labels}"}), 404
 
     items = []
     for topic in showcase:
-        if category and topic['label'].lower() != category.lower():
+        if category and topic["label"].lower() != category.lower():
             continue
-        for card in topic.get('cards', []):
-            if card.get('gem_score', 0) >= min_gem:
-                items.append({
-                    'topic': topic['label'],
-                    'emoji': topic['emoji'],
-                    **card
-                })
+        for card in topic.get("cards", []):
+            if card.get("gem_score", 0) >= min_gem:
+                items.append({"topic": topic["label"], "emoji": topic["emoji"], **card})
 
-    items.sort(key=lambda x: x.get('gem_score', 0), reverse=True)
+    items.sort(key=lambda x: x.get("gem_score", 0), reverse=True)
     items = items[:50]
 
-    now = datetime.now(timezone.utc).strftime('%a, %d %b %Y %H:%M:%S +0000')
+    now = datetime.now(timezone.utc).strftime("%a, %d %b %Y %H:%M:%S +0000")
 
-    rss_items = ''
+    rss_items = ""
     for item in items:
-        name = xml_escape(item.get('name', 'Untitled'))
-        author = xml_escape(item.get('author', 'unknown'))
-        topic = xml_escape(item.get('topic', ''))
-        link = "https://chub.ai/characters/" + xml_escape(item.get('author_path', ''))
-        score = round(item.get('gem_score', 0))
-        depth = round(item.get('smoothed_depth', 0))
-        conv = round(item.get('smoothed_conversion', 0) * 100, 1)
+        name = xml_escape(item.get("name", "Untitled"))
+        author = xml_escape(item.get("author", "unknown"))
+        topic = xml_escape(item.get("topic", ""))
+        link = "https://chub.ai/characters/" + xml_escape(item.get("author_path", ""))
+        score = round(item.get("gem_score", 0))
+        depth = round(item.get("smoothed_depth", 0))
+        conv = round(item.get("smoothed_conversion", 0) * 100, 1)
 
         rss_items += f"""
         <item>
@@ -1364,7 +1419,11 @@ def rss_feed(category=None):
             <category>{topic}</category>
         </item>"""
 
-    title = f"Chub AI Gems — {xml_escape(category)}" if category else "Chub AI Gems — Top Discoveries"
+    title = (
+        f"Chub AI Gems — {xml_escape(category)}"
+        if category
+        else "Chub AI Gems — Top Discoveries"
+    )
 
     rss = f"""<?xml version="1.0" encoding="UTF-8"?>
 <rss version="2.0">
@@ -1378,73 +1437,104 @@ def rss_feed(category=None):
     </channel>
 </rss>"""
 
-    response = app.response_class(rss, mimetype='application/rss+xml')
+    response = app.response_class(rss, mimetype="application/rss+xml")
     return response
+
 
 SEARCH_CACHE_MAX = 200
 
 SORT_KEYS = {
-    'gem_score': lambda x: x.get('gem_score', 0),
-    'depth': lambda x: x['smoothed_depth'],
-    'conversion': lambda x: x['smoothed_conversion'],
-    'favorites': lambda x: x['favorites'],
-    'downloads': lambda x: x['downloads'],
-    'chats': lambda x: x['chats'],
-    'messages': lambda x: x['messages'],
+    "gem_score": lambda x: x.get("gem_score", 0),
+    "depth": lambda x: x["smoothed_depth"],
+    "conversion": lambda x: x["smoothed_conversion"],
+    "favorites": lambda x: x["favorites"],
+    "downloads": lambda x: x["downloads"],
+    "chats": lambda x: x["chats"],
+    "messages": lambda x: x["messages"],
 }
 
 
 def _sorted_response(entry, sort_strategy):
-    key_fn = SORT_KEYS.get(sort_strategy, SORT_KEYS['gem_score'])
-    ordered = sorted(entry['processed'], key=key_fn, reverse=True)
-    return {'results': ordered, 'total': entry['total'],
-            'pool_size_raw': entry['pool_size_raw'], 'pool_size_unique': entry['pool_size_unique']}
+    key_fn = SORT_KEYS.get(sort_strategy, SORT_KEYS["gem_score"])
+    ordered = sorted(entry["processed"], key=key_fn, reverse=True)
+    return {
+        "results": ordered,
+        "total": entry["total"],
+        "pool_size_raw": entry["pool_size_raw"],
+        "pool_size_unique": entry["pool_size_unique"],
+    }
 
 
-@app.route('/api/query')
+@app.route("/api/query")
 @rate_limit
 def query_api():
-    query = request.args.get('query', '')[:200]
-    topics = request.args.get('topics', '')[:500]
-    exclude_raw = request.args.get('exclude_tags', '')[:500]
-    exclude_set = {t.lower().strip() for t in exclude_raw.split(',') if t.strip()}
-    inclusive_or = request.args.get('inclusive_or', 'true') == 'true'
-    sort_strategy = request.args.get('sort', 'gem_score')
-    if sort_strategy not in ('gem_score', 'depth', 'conversion', 'favorites', 'downloads', 'chats', 'messages'):
-        sort_strategy = 'gem_score'
-    try: min_favs = max(0, min(int(request.args.get('min_favs', '0') or 0), 999999))
-    except (ValueError, TypeError): min_favs = 0
-    try: min_chats = max(0, min(int(request.args.get('min_chats', '0') or 0), 999999))
-    except (ValueError, TypeError): min_chats = 0
-    try: min_msgs = max(0, min(int(request.args.get('min_msgs', '0') or 0), 999999))
-    except (ValueError, TypeError): min_msgs = 0
-    nsfw = request.args.get('nsfw', 'true') == 'true'
+    query = request.args.get("query", "")[:200]
+    topics = request.args.get("topics", "")[:500]
+    exclude_raw = request.args.get("exclude_tags", "")[:500]
+    exclude_set = {t.lower().strip() for t in exclude_raw.split(",") if t.strip()}
+    inclusive_or = request.args.get("inclusive_or", "true") == "true"
+    sort_strategy = request.args.get("sort", "gem_score")
+    if sort_strategy not in (
+        "gem_score",
+        "depth",
+        "conversion",
+        "favorites",
+        "downloads",
+        "chats",
+        "messages",
+    ):
+        sort_strategy = "gem_score"
+    try:
+        min_favs = max(0, min(int(request.args.get("min_favs", "0") or 0), 999999))
+    except (ValueError, TypeError):
+        min_favs = 0
+    try:
+        min_chats = max(0, min(int(request.args.get("min_chats", "0") or 0), 999999))
+    except (ValueError, TypeError):
+        min_chats = 0
+    try:
+        min_msgs = max(0, min(int(request.args.get("min_msgs", "0") or 0), 999999))
+    except (ValueError, TypeError):
+        min_msgs = 0
+    nsfw = request.args.get("nsfw", "true") == "true"
 
     def parse_days(name):
-        raw = request.args.get(name, '').strip()
+        raw = request.args.get(name, "").strip()
         if not raw:
             return None
         try:
             return max(0, min(int(raw), 36500))
         except (ValueError, TypeError):
             return None
-    min_days_ago = parse_days('min_days_ago')
-    max_days_ago = parse_days('max_days_ago')
 
-    cache_key = (query.lower().strip(), topics.lower().strip(), inclusive_or, min_favs, min_chats, min_msgs, nsfw, frozenset(exclude_set), min_days_ago, max_days_ago)
+    min_days_ago = parse_days("min_days_ago")
+    max_days_ago = parse_days("max_days_ago")
+
+    cache_key = (
+        query.lower().strip(),
+        topics.lower().strip(),
+        inclusive_or,
+        min_favs,
+        min_chats,
+        min_msgs,
+        nsfw,
+        frozenset(exclude_set),
+        min_days_ago,
+        max_days_ago,
+    )
     now = time.time()
 
     with _search_lock:
         cached = _search_cache.get(cache_key)
-        hit = cached is not None and (now - cached['ts']) < SEARCH_CACHE_TTL
+        hit = cached is not None and (now - cached["ts"]) < SEARCH_CACHE_TTL
     if hit:
         return jsonify(_sorted_response(cached, sort_strategy))
 
     try:
         headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
-                          'AppleWebKit/537.36 (KHTML, like Gecko) '
-                          'Chrome/119.0.0.0 Safari/537.36'
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/119.0.0.0 Safari/537.36"
         }
 
         card_map = {}
@@ -1457,7 +1547,18 @@ def query_api():
 
         with ThreadPoolExecutor(max_workers=18) as executor:
             futures = {
-                executor.submit(fetch_chub_page, query, pg, sort_by, nsfw, headers, topics, inclusive_or, min_days_ago, max_days_ago): (sort_by, pg)
+                executor.submit(
+                    fetch_chub_page,
+                    query,
+                    pg,
+                    sort_by,
+                    nsfw,
+                    headers,
+                    topics,
+                    inclusive_or,
+                    min_days_ago,
+                    max_days_ago,
+                ): (sort_by, pg)
                 for sort_by, pg in jobs
             }
             for future in as_completed(futures):
@@ -1465,35 +1566,35 @@ def query_api():
                 nodes = future.result()
                 total_raw += len(nodes)
                 for node in nodes:
-                    fp = node.get('fullPath', '')
+                    fp = node.get("fullPath", "")
                     if not fp:
                         continue
                     if fp in card_map:
-                        card_map[fp]['found_in'].add(sort_by)
+                        card_map[fp]["found_in"].add(sort_by)
                         # Union topics from all sources
-                        existing = set(card_map[fp]['node'].get('topics', []))
-                        incoming = set(node.get('topics', []))
+                        existing = set(card_map[fp]["node"].get("topics", []))
+                        incoming = set(node.get("topics", []))
                         if incoming - existing:
-                            card_map[fp]['node']['topics'] = list(existing | incoming)
+                            card_map[fp]["node"]["topics"] = list(existing | incoming)
                     else:
-                        card_map[fp] = {'node': node, 'found_in': {sort_by}}
+                        card_map[fp] = {"node": node, "found_in": {sort_by}}
 
         pool_unique = len(card_map)
 
         processed = []
         for fp, entry in card_map.items():
-            node = entry['node']
-            found_in = entry['found_in']
-            favs = int(node.get('n_favorites', 0) or 0)
-            chats = int(node.get('nChats', 0) or 0)
-            messages = int(node.get('nMessages', 0) or 0)
-            downloads = int(node.get('starCount', 0) or 0)
+            node = entry["node"]
+            found_in = entry["found_in"]
+            favs = int(node.get("n_favorites", 0) or 0)
+            chats = int(node.get("nChats", 0) or 0)
+            messages = int(node.get("nMessages", 0) or 0)
+            downloads = int(node.get("starCount", 0) or 0)
 
             if favs < min_favs or chats < min_chats or messages < min_msgs:
                 continue
             # Tag exclusion
             if exclude_set:
-                card_topics = {t.lower().strip() for t in node.get('topics', [])}
+                card_topics = {t.lower().strip() for t in node.get("topics", [])}
                 if card_topics & exclude_set:
                     continue
 
@@ -1501,69 +1602,86 @@ def query_api():
             raw_conversion = favs / chats if chats > 0 else 0.0
             smoothed_depth = calculate_smoothed_depth(messages, chats)
             smoothed_conversion = calculate_smoothed_conversion(favs, chats, downloads)
-            author = fp.split('/')[0] if '/' in fp else fp
+            author = fp.split("/")[0] if "/" in fp else fp
 
-            created_at = node.get('createdAt') or ''
+            created_at = node.get("createdAt") or ""
             days_old = None
             if created_at:
                 try:
-                    created_dt = datetime.fromisoformat(created_at.replace('Z', '+00:00'))
+                    created_dt = datetime.fromisoformat(
+                        created_at.replace("Z", "+00:00")
+                    )
                     days_old = max(0, (datetime.now(timezone.utc) - created_dt).days)
                 except ValueError:
                     pass
 
-            processed.append({
-                'name': node.get('name', 'Untitled'),
-                'tagline': node.get('tagline', ''),
-                'author': author,
-                'author_path': fp,
-                'avatar_url': node.get('avatar_url', ''),
-                'downloads': downloads,
-                'favorites': favs,
-                'chats': chats,
-                'messages': messages,
-                'raw_depth': raw_depth,
-                'raw_conversion': raw_conversion,
-                'smoothed_depth': smoothed_depth,
-                'smoothed_conversion': smoothed_conversion,
-                'created_at': created_at,
-                'days_old': days_old,
-                'topics': node.get('topics', []),
-                'found_in': sorted(list(found_in))
-            })
+            processed.append(
+                {
+                    "name": node.get("name", "Untitled"),
+                    "tagline": node.get("tagline", ""),
+                    "author": author,
+                    "author_path": fp,
+                    "avatar_url": node.get("avatar_url", ""),
+                    "downloads": downloads,
+                    "favorites": favs,
+                    "chats": chats,
+                    "messages": messages,
+                    "raw_depth": raw_depth,
+                    "raw_conversion": raw_conversion,
+                    "smoothed_depth": smoothed_depth,
+                    "smoothed_conversion": smoothed_conversion,
+                    "created_at": created_at,
+                    "days_old": days_old,
+                    "topics": node.get("topics", []),
+                    "found_in": sorted(list(found_in)),
+                }
+            )
 
         processed = calculate_gem_scores(processed)
 
-        new_entry = {'processed': processed, 'total': len(processed),
-                     'pool_size_raw': total_raw, 'pool_size_unique': pool_unique, 'ts': now}
+        new_entry = {
+            "processed": processed,
+            "total": len(processed),
+            "pool_size_raw": total_raw,
+            "pool_size_unique": pool_unique,
+            "ts": now,
+        }
 
         with _search_lock:
             _search_cache[cache_key] = new_entry
-            stale = [k for k, v in _search_cache.items() if (now - v['ts']) > SEARCH_CACHE_TTL * 2]
+            stale = [
+                k
+                for k, v in _search_cache.items()
+                if (now - v["ts"]) > SEARCH_CACHE_TTL * 2
+            ]
             for k in stale:
                 _search_cache.pop(k, None)
             while len(_search_cache) > SEARCH_CACHE_MAX:
-                oldest = min(_search_cache, key=lambda k: _search_cache[k]['ts'])
+                oldest = min(_search_cache, key=lambda k: _search_cache[k]["ts"])
                 _search_cache.pop(oldest, None)
 
         return jsonify(_sorted_response(new_entry, sort_strategy))
 
     except requests.exceptions.Timeout:
-        return jsonify({'error': 'Chub API timed out.'}), 504
+        return jsonify({"error": "Chub API timed out."}), 504
     except requests.exceptions.ConnectionError:
-        return jsonify({'error': 'Could not connect to Chub API.'}), 502
+        return jsonify({"error": "Could not connect to Chub API."}), 502
     except Exception as e:
         app.logger.error(f"Query error: {e}")
-        return jsonify({'error': 'Internal server error.'}), 500
+        return jsonify({"error": "Internal server error."}), 500
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     total_calls = len(SORT_STRATEGIES) * PAGES_PER_SORT
     print("=" * 60)
     print("  💎 Chub AI Gems — Showcase Banner + Horizontal Cards")
     print("=" * 60)
-    print(f"  Search: {len(SORT_STRATEGIES)} pools × {PAGES_PER_SORT} pages = {total_calls} calls")
-    print(f"  Showcase: {len(SHOWCASE_TOPICS)} topics × top {SHOWCASE_CARDS_PER_TOPIC} each (cached {SHOWCASE_CACHE_TTL}s)")
+    print(
+        f"  Search: {len(SORT_STRATEGIES)} pools × {PAGES_PER_SORT} pages = {total_calls} calls"
+    )
+    print(
+        f"  Showcase: {len(SHOWCASE_TOPICS)} topics × top {SHOWCASE_CARDS_PER_TOPIC} each (cached {SHOWCASE_CACHE_TTL}s)"
+    )
     print(f"  Gem = (depth/med + conv/med) × log(favs + 1)")
     if AUTH_ENABLED:
         print(f"  Basic auth: ENABLED (user: {AUTH_USERNAME})")
@@ -1576,21 +1694,31 @@ if __name__ == '__main__':
     try:
         from gunicorn.app.wsgiapp import run
         import sys
+
         # Single worker + threads: in-memory caches & rate limiter are per-process,
         # so one shared process keeps them coherent (app is I/O-bound on the Chub API).
         sys.argv = [
-            'gunicorn',
-            '-w', '1',
-            '-b', '0.0.0.0:5123',
-            '--max-requests', '1000',        # Recycle after 1000 requests
-            '--max-requests-jitter', '50',    # Stagger so they don't all die at once
-            '--timeout', '30',                # Kill stuck workers
-            '--graceful-timeout', '10',       # Give them 10s to finish up
-            '--worker-class', 'gthread',      # Threaded workers for your I/O-heavy API calls
-            '--threads', '8',                 # 8 threads per worker
-            'chub_search_tool:app'
+            "gunicorn",
+            "-w",
+            "1",
+            "-b",
+            "0.0.0.0:5123",
+            "--max-requests",
+            "1000",  # Recycle after 1000 requests
+            "--max-requests-jitter",
+            "50",  # Stagger so they don't all die at once
+            "--timeout",
+            "30",  # Kill stuck workers
+            "--graceful-timeout",
+            "10",  # Give them 10s to finish up
+            "--worker-class",
+            "gthread",  # Threaded workers for your I/O-heavy API calls
+            "--threads",
+            "8",  # 8 threads per worker
+            "chub_search_tool:app",
         ]
         run()
     except ImportError:
         from waitress import serve
-        serve(app, host='0.0.0.0', port=5123, threads=8)
+
+        serve(app, host="0.0.0.0", port=5123, threads=8)
