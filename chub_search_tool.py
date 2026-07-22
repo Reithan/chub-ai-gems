@@ -1680,7 +1680,7 @@ if __name__ == "__main__":
     print(
         f"  Showcase: {len(SHOWCASE_TOPICS)} topics × top {SHOWCASE_CARDS_PER_TOPIC} each (cached {SHOWCASE_CACHE_TTL}s)"
     )
-    print(f"  Gem = (depth/med + conv/med) × log(favs + 1)")
+    print("  Gem = (depth/med + conv/med) × log(favs + 1)")
     if AUTH_ENABLED:
         print(f"  Basic auth: ENABLED (user: {AUTH_USERNAME})")
     else:
